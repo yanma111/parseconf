@@ -85,7 +85,7 @@ fn read_tuple(line: &str, separator: &str) -> Result<(String, String), io::Error
 }
 
 //   confファイルをparseする
-fn parser(filepath: &str) -> Result<Branch, io::Error> {
+fn conf_parser(filepath: &str, mut schema: BTreeMap<String, String>) -> Result<Branch, io::Error> {
     let mut treeroot = Branch::MapValue(BTreeMap::new());
 
     let reader = BufReader::new(File::open(Path::new(filepath))?);
@@ -93,28 +93,82 @@ fn parser(filepath: &str) -> Result<Branch, io::Error> {
     for r in reader.lines() {
         match read_tuple(&r?, "=") {
             Ok((key, val)) => {
+                //ここにschema_treeのmapvalを参照してvalの型チェックをする機能を入れる(TODO)
+                match schema.get_mut(&key) {
+                    Some(_) => {
+                        let type_str = schema.get(&key).unwrap();
+                        match type_str.as_str() {
+                            "string" => {
+                                //string型は何もしない
+                            }
+                            "integer" => {
+                                if val.parse::<i32>().is_err() {
+                                    return Err(io::Error::new(io::ErrorKind::Other, format!("Value for key {} is not an integer.", key)));
+                                }
+                            }
+                            "bool" => {
+                                if val.parse::<bool>().is_err() {
+                                    return Err(io::Error::new(io::ErrorKind::Other, format!("Value for key {} is not a boolean.", key)));
+                                }
+                            }
+                            _ => {
+                                return Err(io::Error::new(io::ErrorKind::Other, format!("Unknown type {} for key {}.", type_str, key)));
+                            }
+                        }
+                    }
+                    None => {
+                        //schema未定義はノーチェックで通す
+                    }
+                }
+                //ここまで
                 add_branch(&mut treeroot, &key, &val)?;
             }
             Err(_) => {
                 //コメント行または空行のためスキップ
-                continue;
             }
         }
     }
     return Ok(treeroot);
 }
 
+//   schemaファイルをparseする
+fn schema_parser(filepath: &str) -> Result<BTreeMap<String, String>, io::Error> {
+    let mut m = BTreeMap::new();
+
+    let reader = BufReader::new(File::open(Path::new(filepath))?);
+
+    for r in reader.lines() {
+        match read_tuple(&r?, "->") {
+            Ok((key, val)) => {
+                m.insert(key, val);
+            }
+            Err(_) => {
+                //コメント行または空行のためスキップ
+            }
+        }
+    }
+    return Ok(m);
+}
+
 //   コマンドライン対応
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: parseconf <file>");
+    if args.len() != 3 {
+        eprintln!("Usage: parseconf <conf_file> <schema_file>");
         std::process::exit(1);
     }
-    let filepath = &args[1];
-    match parser(filepath) {
-        Ok(tree) => {
-            println!("{:?}", tree);
+    match schema_parser(&args[2]) {
+        Ok(schema_tree) => {
+            println!("{:?}", schema_tree);
+            match conf_parser(&args[1], schema_tree) {
+                Ok(conf_tree) => {
+                    println!("{:?}", conf_tree);
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Err(e) => {
             eprintln!("Error: {}", e);
