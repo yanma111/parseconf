@@ -60,35 +60,46 @@ fn add_branch(branch: &mut Branch, keys: &str, val: &str) -> Result<(), io::Erro
     Ok(())
 }
 
+//   1行読み込んでけｙとvalueのtupleを返す
+//   スキーマ読み込みのための布石として分離
+fn read_tuple(line: &str, separator: &str) -> Result<(String, String), io::Error> {
+    let s = line.trim();
+    if s.starts_with("#") || s.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::Other, "Comment or empty line."));
+    }
+
+    let key: String;
+    let val: String;
+    match s.find(separator) {
+        Some(_) => {
+            let kv: Vec<&str> = s.splitn(2, separator).collect();
+            key = get_element(&kv, 0);
+            val = get_element(&kv, 1);
+        }
+        None => {
+            key = s.into();
+            val = "".into();
+        }
+    }
+    Ok((key, val))
+}
+
+//   confファイルをparseする
 fn parser(filepath: &str) -> Result<Branch, io::Error> {
     let mut treeroot = Branch::MapValue(BTreeMap::new());
 
     let reader = BufReader::new(File::open(Path::new(filepath))?);
 
     for r in reader.lines() {
-        let s = r?;
-        let s = s.trim();
-
-        if s.starts_with("#") || s.is_empty() {
-            //コメント行または空行のためスキップ
-            continue;
-        }
-
-        let key: String;
-        let val: String;
-        match s.find("=") {
-            Some(_) => {
-                let kv = s.splitn(2, "=").collect::<Vec<&str>>();
-                key = get_element(&kv, 0);
-                val = get_element(&kv, 1);
+        match read_tuple(&r?, "=") {
+            Ok((key, val)) => {
+                add_branch(&mut treeroot, &key, &val)?;
             }
-            None => {
-                key = s.into();
-                val = "".into();
+            Err(_) => {
+                //コメント行または空行のためスキップ
+                continue;
             }
         }
-
-        add_branch(&mut treeroot, &key, &val)?;
     }
     return Ok(treeroot);
 }
